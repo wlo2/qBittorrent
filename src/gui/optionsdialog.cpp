@@ -1122,9 +1122,13 @@ void OptionsDialog::loadSpeedTabOptions()
 #ifdef Q_OS_MACOS
     m_ui->checkShowSpeedInDock->setChecked(pref->isSpeedInDockEnabled());
     m_ui->checkShowMenuBarIcon->setChecked(pref->isMacOSMenuBarIconEnabled());
+    m_ui->checkMenuBarIconOpensWindow->setChecked(pref->isMacOSMenuBarIconOpeningWindow());
+    m_ui->checkHideDockIcon->setChecked(pref->isMacOSDockIconHidden());
 #else
     m_ui->checkShowSpeedInDock->hide();
     m_ui->checkShowMenuBarIcon->hide();
+    m_ui->checkMenuBarIconOpensWindow->hide();
+    m_ui->checkHideDockIcon->hide();
 #endif
 
     connect(m_ui->spinUploadLimit, qSpinBoxValueChanged, this, &ThisType::enableApplyButton);
@@ -1145,6 +1149,22 @@ void OptionsDialog::loadSpeedTabOptions()
 #ifdef Q_OS_MACOS
     connect(m_ui->checkShowSpeedInDock, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
     connect(m_ui->checkShowMenuBarIcon, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
+    connect(m_ui->checkMenuBarIconOpensWindow, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
+    connect(m_ui->checkHideDockIcon, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);
+
+    // The menu bar icon is the only remaining way to reach qBittorrent once its Dock icon is hidden
+    const auto updateMenuBarIconCheckBoxes = [this]
+    {
+        const bool dockIconHidden = m_ui->checkHideDockIcon->isChecked();
+        m_ui->checkShowMenuBarIcon->setDisabled(dockIconHidden);
+        if (dockIconHidden)
+            m_ui->checkShowMenuBarIcon->setChecked(true);
+
+        m_ui->checkMenuBarIconOpensWindow->setEnabled(m_ui->checkShowMenuBarIcon->isChecked());
+    };
+    connect(m_ui->checkHideDockIcon, &QAbstractButton::toggled, this, updateMenuBarIconCheckBoxes);
+    connect(m_ui->checkShowMenuBarIcon, &QAbstractButton::toggled, this, updateMenuBarIconCheckBoxes);
+    updateMenuBarIconCheckBoxes();
 #endif
 }
 
@@ -1171,6 +1191,8 @@ void OptionsDialog::saveSpeedTabOptions() const
 #ifdef Q_OS_MACOS
     pref->setSpeedInDockEnabled(m_ui->checkShowSpeedInDock->isChecked());
     pref->setMacOSMenuBarIconEnabled(m_ui->checkShowMenuBarIcon->isChecked());
+    pref->setMacOSMenuBarIconOpeningWindow(m_ui->checkMenuBarIconOpensWindow->isChecked());
+    pref->setMacOSDockIconHidden(m_ui->checkHideDockIcon->isChecked());
 #endif
 }
 

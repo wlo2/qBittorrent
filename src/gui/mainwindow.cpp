@@ -159,9 +159,7 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     Preferences *const pref = Preferences::instance();
     m_uiLocked = pref->isUILocked();
     m_displaySpeedInTitle = pref->speedInTitleBar();
-#ifdef Q_OS_MACOS
-    m_statusItem->setVisible(pref->isMacOSMenuBarIconEnabled());
-#else
+#ifndef Q_OS_MACOS
     // Setting icons
     setWindowIcon(UIThemeManager::instance()->getIcon(u"qbittorrent"_s));
 #endif // Q_OS_MACOS
@@ -448,7 +446,17 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
     loadSettings();
 
     populateDesktopIntegrationMenu();
-#ifndef Q_OS_MACOS
+#ifdef Q_OS_MACOS
+    createMenuBarIconMenu();
+    applyMacOSDesktopIntegration();
+    // macOS brings the Dock icon back when it hands a torrent file or a magnet link to the application.
+    // Hide it again once the application is deactivated, so that the "Add torrent" dialog keeps the focus.
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [](const Qt::ApplicationState state)
+    {
+        if ((state != Qt::ApplicationActive) && Preferences::instance()->isMacOSDockIconHidden())
+            MacUtils::setDockIconVisible(false);
+    });
+#else
     m_ui->actionLock->setVisible(app->desktopIntegration()->isActive());
     connect(app->desktopIntegration(), &DesktopIntegration::stateChanged, this, [this, app]()
     {
@@ -473,11 +481,12 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
         activateWindow();
         raise();
     }
-    else
+    else if (!pref->isMacOSDockIconHidden())
     {
         // Make sure the Window is visible if we don't have a tray icon
         showMinimized();
     }
+    // else: stay completely hidden, the window can be shown from the menu bar icon
 #else
     if (app->desktopIntegration()->isActive())
     {
@@ -1098,11 +1107,17 @@ void MainWindow::notifyOfUpdate(const QString &)
     m_executableWatcher = nullptr;
 }
 
-#ifndef Q_OS_MACOS
 // Toggle Main window visibility
 void MainWindow::toggleVisibility()
 {
-    if (isHidden())
+#ifdef Q_OS_MACOS
+    // A miniaturized window is not reachable when the Dock icon is hidden, so restore it too
+    const bool shouldShow = isHidden() || isMinimized();
+#else
+    const bool shouldShow = isHidden();
+#endif
+
+    if (shouldShow)
     {
         if (m_uiLocked && !unlockUI())  // Ask for UI lock password
             return;
@@ -1112,6 +1127,11 @@ void MainWindow::toggleVisibility()
 
         // Then show it
         show();
+#ifdef Q_OS_MACOS
+        // Without an explicit activation the window of an application whose Dock icon
+        // is hidden doesn't come to the front.
+        MacUtils::activateApplication();
+#endif
         raise();
         activateWindow();
     }
@@ -1120,7 +1140,6 @@ void MainWindow::toggleVisibility()
         hide();
     }
 }
-#endif // Q_OS_MACOS
 
 // Display About Dialog
 void MainWindow::on_actionAbout_triggered()
@@ -1500,7 +1519,7 @@ void MainWindow::loadPreferences()
     // Clear dock badge immediately if speed display is disabled
     if (!pref->isSpeedInDockEnabled())
         m_badger->updateSpeed(0, 0);
-    m_statusItem->setVisible(pref->isMacOSMenuBarIconEnabled());
+    applyMacOSDesktopIntegration();
 #endif
 
     qDebug("GUI settings loaded");
@@ -1517,8 +1536,9 @@ void MainWindow::loadSessionStats()
 #ifdef Q_OS_MACOS
     if (Preferences::instance()->isSpeedInDockEnabled())
         m_badger->updateSpeed(status.payloadDownloadRate, status.payloadUploadRate);
-    if (Preferences::instance()->isMacOSMenuBarIconEnabled())
-        m_statusItem->updateSpeed(status.payloadDownloadRate, status.payloadUploadRate);
+    m_statusItem->updateSpeed(status.payloadDownloadRate, status.payloadUploadRate);
+    if (m_menuBarIconStatsAction)
+        m_menuBarIconStatsAction->setText(u"↓ %1 · ↑ %2"_s.arg(m_downloadRate, m_uploadRate));
 #else
     refreshTrayIconTooltip();
 #endif  // Q_OS_MACOS
@@ -1576,6 +1596,82 @@ void MainWindow::populateDesktopIntegrationMenu()
     if (m_uiLocked)
         menu->setEnabled(false);
 }
+
+#ifdef Q_OS_MACOS
+void MainWindow::createMenuBarIconMenu()
+{
+    Q_ASSERT(!m_menuBarIconMenu);
+
+    m_menuBarIconMenu = new QMenu(this);
+
+    m_menuBarIconStatsAction = m_menuBarIconMenu->addAction(QString());
+    m_menuBarIconStatsAction->setEnabled(false);
+    m_menuBarIconMenu->addSeparator();
+
+    m_menuBarIconToggleVisibilityAction = m_menuBarIconMenu->addAction(tr("Show"));
+    connect(m_menuBarIconToggleVisibilityAction, &QAction::triggered, this, &MainWindow::toggleVisibility);
+    m_menuBarIconMenu->addSeparator();
+
+    m_menuBarIconAltSpeedLimitsAction = m_menuBarIconMenu->addAction(tr("Alternative speed limits"));
+    m_menuBarIconAltSpeedLimitsAction->setCheckable(true);
+    connect(m_menuBarIconAltSpeedLimitsAction, &QAction::triggered, this, &MainWindow::toggleAlternativeSpeeds);
+
+    m_menuBarIconResumeSessionAction = m_menuBarIconMenu->addAction(tr("Resume session"));
+    connect(m_menuBarIconResumeSessionAction, &QAction::triggered
+            , m_transferListWidget, &TransferListWidget::resumeSession);
+
+    m_menuBarIconPauseSessionAction = m_menuBarIconMenu->addAction(tr("Pause session"));
+    connect(m_menuBarIconPauseSessionAction, &QAction::triggered
+            , m_transferListWidget, &TransferListWidget::pauseSession);
+
+    m_menuBarIconMenu->addSeparator();
+
+    QAction *quitAction = m_menuBarIconMenu->addAction(tr("Quit qBittorrent"));
+    // An action with `QAction::QuitRole` is not displayed in a status item menu, so trigger
+    // the "Exit" action of the main menu instead of adding it to this menu directly.
+    connect(quitAction, &QAction::triggered, m_ui->actionExit, &QAction::trigger);
+
+    // The actions above are only used here, so their macOS menu roles must not be guessed
+    // from their text, otherwise they end up in the application menu (or nowhere at all).
+    const QList<QAction *> actions = m_menuBarIconMenu->actions();
+    for (QAction *action : actions)
+        action->setMenuRole(QAction::NoRole);
+
+    connect(m_menuBarIconMenu, &QMenu::aboutToShow, this, &MainWindow::updateMenuBarIconMenu);
+    updateMenuBarIconMenu();
+
+    m_statusItem->setMenu(m_menuBarIconMenu);
+    m_statusItem->setClickHandler([this]() { toggleVisibility(); });
+}
+
+void MainWindow::updateMenuBarIconMenu()
+{
+    const auto *session = BitTorrent::Session::instance();
+
+    m_menuBarIconStatsAction->setText(u"↓ %1 · ↑ %2"_s.arg(m_downloadRate, m_uploadRate));
+    m_menuBarIconToggleVisibilityAction->setText((isVisible() && !isMinimized()) ? tr("Hide") : tr("Show"));
+
+    m_menuBarIconAltSpeedLimitsAction->setChecked(session->isAltGlobalSpeedLimitEnabled());
+    m_menuBarIconResumeSessionAction->setVisible(session->isPaused());
+    m_menuBarIconPauseSessionAction->setVisible(!session->isPaused());
+
+    // Only leave the actions that are needed to reach the (locked) UI or to quit
+    m_menuBarIconAltSpeedLimitsAction->setEnabled(!m_uiLocked);
+    m_menuBarIconResumeSessionAction->setEnabled(!m_uiLocked);
+    m_menuBarIconPauseSessionAction->setEnabled(!m_uiLocked);
+}
+
+void MainWindow::applyMacOSDesktopIntegration()
+{
+    const auto *pref = Preferences::instance();
+    const bool hideDockIcon = pref->isMacOSDockIconHidden();
+
+    // When the Dock icon is hidden the menu bar icon is the only way left to reach the application
+    m_statusItem->setVisible(pref->isMacOSMenuBarIconEnabled() || hideDockIcon);
+    m_statusItem->setOpensWindowOnClick(pref->isMacOSMenuBarIconOpeningWindow());
+    MacUtils::setDockIconVisible(!hideDockIcon);
+}
+#endif // Q_OS_MACOS
 
 void MainWindow::updateAltSpeedsBtn(const bool alternative)
 {

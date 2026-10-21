@@ -1560,6 +1560,32 @@ void Preferences::setMacOSMenuBarIconEnabled(const bool enabled)
 
     setValue(u"Preferences/Desktop/ShowMacOSMenuBarIcon"_s, enabled);
 }
+
+bool Preferences::isMacOSMenuBarIconOpeningWindow() const
+{
+    return value(u"Preferences/Desktop/MacOSMenuBarIconOpensWindow"_s, true);
+}
+
+void Preferences::setMacOSMenuBarIconOpeningWindow(const bool enabled)
+{
+    if (enabled == isMacOSMenuBarIconOpeningWindow())
+        return;
+
+    setValue(u"Preferences/Desktop/MacOSMenuBarIconOpensWindow"_s, enabled);
+}
+
+bool Preferences::isMacOSDockIconHidden() const
+{
+    return value(u"Preferences/Desktop/HideMacOSDockIcon"_s, false);
+}
+
+void Preferences::setMacOSDockIconHidden(const bool hidden)
+{
+    if (hidden == isMacOSDockIconHidden())
+        return;
+
+    setValue(u"Preferences/Desktop/HideMacOSDockIcon"_s, hidden);
+}
 #endif
 
 bool Preferences::confirmTorrentDeletion() const
