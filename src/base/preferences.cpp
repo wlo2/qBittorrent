@@ -1586,6 +1586,19 @@ void Preferences::setMacOSDockIconHidden(const bool hidden)
 
     setValue(u"Preferences/Desktop/HideMacOSDockIcon"_s, hidden);
 }
+
+bool Preferences::isMacOSMenuBarShownWhenActive() const
+{
+    return value(u"Preferences/Desktop/ShowMacOSMenuBarWhenActive"_s, true);
+}
+
+void Preferences::setMacOSMenuBarShownWhenActive(const bool shown)
+{
+    if (shown == isMacOSMenuBarShownWhenActive())
+        return;
+
+    setValue(u"Preferences/Desktop/ShowMacOSMenuBarWhenActive"_s, shown);
+}
 #endif
 
 bool Preferences::confirmTorrentDeletion() const

@@ -324,6 +324,8 @@ public:
     void setMacOSMenuBarIconOpeningWindow(bool enabled);
     bool isMacOSDockIconHidden() const;
     void setMacOSDockIconHidden(bool hidden);
+    bool isMacOSMenuBarShownWhenActive() const;
+    void setMacOSMenuBarShownWhenActive(bool shown);
 #endif
     bool confirmTorrentDeletion() const;
     void setConfirmTorrentDeletion(bool enabled);

@@ -197,6 +197,8 @@ private:
     void createMenuBarIconMenu();
     void updateMenuBarIconMenu();
     void applyMacOSDesktopIntegration();
+    bool isMacOSDockIconNeeded() const;
+    void hideEvent(QHideEvent *e) override;
 #endif
 
     void closeEvent(QCloseEvent *) override;

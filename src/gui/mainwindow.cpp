@@ -449,12 +449,14 @@ MainWindow::MainWindow(IGUIApplication *app, const WindowState initialState, con
 #ifdef Q_OS_MACOS
     createMenuBarIconMenu();
     applyMacOSDesktopIntegration();
-    // macOS brings the Dock icon back when it hands a torrent file or a magnet link to the application.
-    // Hide it again once the application is deactivated, so that the "Add torrent" dialog keeps the focus.
-    connect(qApp, &QGuiApplication::applicationStateChanged, this, [](const Qt::ApplicationState state)
+    // Hiding the Dock icon while the application is being activated takes the focus away from its window,
+    // so only hide it on deactivation. This also removes the Dock icon macOS brings back when it hands
+    // a torrent file or a magnet link to the application.
+    connect(qApp, &QGuiApplication::applicationStateChanged, this, [this](const Qt::ApplicationState state)
     {
-        if ((state != Qt::ApplicationActive) && Preferences::instance()->isMacOSDockIconHidden())
-            MacUtils::setDockIconVisible(false);
+        const bool needed = isMacOSDockIconNeeded();
+        if (needed || (state != Qt::ApplicationActive))
+            MacUtils::setDockIconVisible(needed);
     });
 #else
     m_ui->actionLock->setVisible(app->desktopIntegration()->isActive());
@@ -1195,6 +1197,12 @@ void MainWindow::showEvent(QShowEvent *e)
             move(Utils::Gui::screenCenter(this));
             m_posInitialized = true;
         }
+
+#ifdef Q_OS_MACOS
+        // The application may already be active, e.g. with the "Add torrent" dialog focused
+        if (isMacOSDockIconNeeded())
+            MacUtils::setDockIconVisible(true);
+#endif
     }
     else
     {
@@ -1669,7 +1677,21 @@ void MainWindow::applyMacOSDesktopIntegration()
     // When the Dock icon is hidden the menu bar icon is the only way left to reach the application
     m_statusItem->setVisible(pref->isMacOSMenuBarIconEnabled() || hideDockIcon);
     m_statusItem->setOpensWindowOnClick(pref->isMacOSMenuBarIconOpeningWindow());
-    MacUtils::setDockIconVisible(!hideDockIcon);
+    MacUtils::setDockIconVisible(isMacOSDockIconNeeded());
+}
+
+bool MainWindow::isMacOSDockIconNeeded() const
+{
+    const auto *pref = Preferences::instance();
+    // macOS shows the menu bar of an application only while it has a Dock icon
+    return !pref->isMacOSDockIconHidden()
+        || (pref->isMacOSMenuBarShownWhenActive() && isVisible() && (QGuiApplication::applicationState() == Qt::ApplicationActive));
+}
+
+void MainWindow::hideEvent(QHideEvent *e)
+{
+    QMainWindow::hideEvent(e);
+    MacUtils::setDockIconVisible(isMacOSDockIconNeeded());
 }
 #endif // Q_OS_MACOS
 
